@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>手機專用 - 極速輪班助手</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    
+    <style>
+        /* 🚨 強制鎖定手機版月曆的可視高度，絕對不會變成 0 像素 */
+        #calendar {
+            min-height: 480px !important;
+            height: 480px !important;
+            display: block !important;
+            visibility: visible !important;
+        }
+
+        /* 24小時制時間字體加粗 */
+        .fc-event-time { 
+            font-family: monospace; 
+            font-weight: bold; 
+        }
+
+        /* 解決手機端點擊 300ms 延遲，流暢連點 */
+        button, .fc-daygrid-day {
+            touch-action: manipulation;
+        }
+
+        /* 深色模式網頁與月曆適配 */
+        .dark .fc {
+            --fc-border-color: #374151;
+            --fc-page-bg-color: #1f2937;
+            --fc-neutral-bg-color: #111827;
+            color: #f3f4f6;
+        }
+        .dark .fc-theme-standard th { background-color: #111827; }
+        .dark .fc-daygrid-day-number { color: #f3f4f6; }
+        .dark .fc-col-header-cell-cushion { color: #f3f4f6; }
+
+        /* 手機版專屬微調：縮小月曆元件以符合螢幕 */
+        .fc .fc-toolbar-title { font-size: 1.1rem !important; font-weight: 800; }
+        .fc .fc-button { padding: 0.3rem 0.5rem !important; font-size: 0.8rem !important; }
+        .fc-daygrid-day-number { font-size: 0.85rem; padding: 4px !important; }
+        .fc-event-title { font-size: 0.7rem !important; padding: 1px 2px !important; text-align: center; }
+        
+        /* 隱藏原生時間輸入框的非24小時干擾 */
+        input::-webkit-datetime-edit-ampm-field { display: none; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-100 font-sans p-3 min-h-screen transition-colors duration-300">
+
+    <div class="flex justify-between items-center mb-4 px-1">
+        <div>
+            <h1 class="text-xl font-black bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-transparent dark:from-blue-400 dark:to-indigo-300">
+                📅 極速輪班助手 (手機版)
+            </h1>
+            <p class="text-[10px] text-slate-400">嚴格 24H 制 · 垂直優化介面</p>
+        </div>
+        <button onclick="toggleDarkMode()" class="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 shadow-md flex items-center justify-center border border-slate-200 dark:border-slate-700 active:scale-90 transition">
+            <span id="dark-mode-icon" class="text-lg">🌙</span>
+        </button>
+    </div>
+
+    <div class="space-y-4">
+        
+        <div class="bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700">
+            <div id="calendar"></div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-md border border-slate-100 dark:border-slate-700">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">📍 當前準備輸入日期</span>
+            <div id="current-selected-date" class="p-2.5 bg-blue-50 dark:bg-slate-900 text-blue-700 dark:text-blue-400 rounded-xl font-mono text-center text-base font-black shadow-inner">
+                請先點擊上方月曆某一日
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700">
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-1">
+                <span class="w-1.5 h-4 bg-blue-500 rounded-full"></span> 點擊班別填入（按 ▲▼ 排序）
+            </h2>
+            <div id="duty-buttons" class="space-y-2">
+                </div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700">
+            <h3 id="form-title" class="text-xs font-bold mb-3 text-slate-400 uppercase tracking-wider">➕ 新增 / 修改自訂班別</h3>
+            <input type="hidden" id="edit-index" value="">
+            
+            <div class="space-y-3">
+                <input type="text" id="new-code" placeholder="班別代碼 (例如: A, P, N)" class="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-sm border-none focus:ring-2 focus:ring-blue-500 uppercase font-black tracking-wide text-slate-700 dark:text-white">
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] text-slate-400 block mb-1">上班時間 (24h)</label>
+                        <input type="time" id="new-start" class="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700 text-sm border-none font-mono focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-400 block mb-1">下班時間 (24h)</label>
+                        <input type="time" id="new-end" class="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700 text-sm border-none font-mono focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-white">
+                    </div>
+                </div>
+                
+                <button onclick="saveDuty()" id="save-btn" class="w-full bg-blue-600 text-white p-3 rounded-xl font-bold text-sm shadow-md active:scale-95 transition">
+                    儲存班別設定
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 pt-2">
+            <button onclick="exportToICS()" class="bg-emerald-600 text-white p-3.5 rounded-xl font-bold text-sm shadow-md active:scale-95 transition text-center">
+                📥 匯出至日曆 (.ics)
+            </button>
+            <button onclick="clearAllData()" class="bg-red-50 text-red-500 dark:bg-red-950/20 dark:text-red-400 p-3.5 rounded-xl font-bold text-sm active:scale-95 transition text-center">
+                🗑️ 清空月曆排班
+            </button>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+    
+    <script>
+        // 1. 初始化資料結構（全天候24小時制格式）
+        const defaultDuties = [
+            { code: 'A', startTime: '07:00', endTime: '15:00', color: '#2563eb' },
+            { code: 'P', startTime: '14:00', endTime: '22:00', color: '#d97706' },
+            { code: 'N', startTime: '21:45', endTime: '07:15', color: '#dc2626' },
+            { code: 'OFF', startTime: '', endTime: '', color: '#64748b' }
+        ];
+
+        let duties = JSON.parse(localStorage.getItem('my_duties')) || defaultDuties;
+        let scheduleEvents = JSON.parse(localStorage.getItem('my_schedules')) || [];
+        let calendar;
+        let selectedDateStr = null;
+
+        // 2. 網頁載入守護程序
+        window.onload = function() {
+            if (localStorage.getItem('dark_mode') === 'true') {
+                toggleDarkMode(true);
+            }
+            renderDutyList();
+            
+            // 🔥 超強防消保險：延遲 350ms 等待手機網絡與頁面高度就緒才渲染月曆
+            setTimeout(() => {
+                initMobileCalendar();
+            }, 350);
+        };
+
+        // 3. 手機版專屬月曆初始化
+        function initMobileCalendar() {
+            const calendarEl = document.getElementById('calendar');
+            if (!calendarEl) return;
+
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'zh-tw',
+                firstDay: 1, // 星期一開頭
+                selectable: true,
+                height: 480, // 鎖定像素高度
+                handleWindowResize: true,
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: ''
+                },
+                eventTimeFormat: { 
+                    hour: '2-digit', minute: '2-digit', hour12: false // 嚴格 24 小時制
+                },
+                dateClick: function(info) {
+                    selectDate(info.dateStr);
+                },
+                events: scheduleEvents
+            });
+            
+            calendar.render();
+            
+            // 雙重刷新補償，徹底防止部分手機瀏覽器寬度計算錯誤導致的縮小問題
+            setTimeout(() => {
+                if (calendar) calendar.updateSize();
+            }, 300);
+        }
+
+        // 4. 深色模式切換
+        function toggleDarkMode(isInitial = false) {
+            const html = document.documentElement;
+            const isDark = isInitial ? (localStorage.getItem('dark_mode') === 'true') : html.classList.toggle('dark');
+            if (isInitial && isDark) html.classList.add('dark');
+            localStorage.setItem('dark_mode', isDark);
+            document.getElementById('dark-mode-icon').innerText = isDark ? '☀️' : '🌙';
+            if (calendar) calendar.render();
+        }
+
+        // 5. 渲染手機排班大按鍵
+        function renderDutyList() {
+            const container = document.getElementById('duty-buttons');
+            if (!container) return;
+            container.innerHTML = '';
+
+            duties.forEach((duty, index) => {
+                const row = document.createElement('div');
+                row.className = "flex items-center gap-2 bg-slate-50 dark:bg-slate-700/50 p-2 rounded-xl border border-slate-100 dark:border-slate-700";
+                
+                const isOff = duty.code.toUpperCase() === 'OFF' || (!duty.startTime && !duty.endTime);
+                const timeLabel = isOff ? '放假' : `${duty.startTime}-${duty.endTime}`;
+
+                row.innerHTML = `
+                    <div class="flex flex-col justify-between items-center text-slate-400 font-bold px-1 text-xs gap-1.5">
+                        <button onclick="moveOrder(${index}, -1)" class="active:text-blue-500 py-0.5 px-1">▲</button>
+                        <button onclick="moveOrder(${index}, 1)" class="active:text-blue-500 py-0.5 px-1">▼</button>
+                    </div>
+                    
+                    <button onclick="inputDutyAndNext(${index})" class="flex-1 flex justify-between items-center py-3.5 px-4 rounded-xl text-white font-black shadow-sm active:scale-95 transition" style="background-color: ${duty.color}">
+                        <span class="text-base tracking-wide">${duty.code} ${isOff ? '' : '班'}</span>
+                        <span class="text-xs font-mono bg-white/20 px-2 py-0.5 rounded">${timeLabel}</span>
+                    </button>
+                    
+                    <div class="flex items-center gap-1.5 pl-1">
+                        <button onclick="startEdit(${index})" class="p-1.5 bg-slate-200/60 dark:bg-slate-600 rounded-lg text-xs">✏️</button>
+                        <button onclick="deleteDuty(${index})" class="p-1.5 bg-slate-200/60 dark:bg-slate-600 rounded-lg text-xs">❌</button>
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        // 6. 選擇日期程序
+        function selectDate(dateStr) {
+            selectedDateStr = dateStr;
+            document.getElementById('current-selected-date').innerText = dateStr;
+            
+            // 清理舊的高亮
+            document.querySelectorAll('.fc-daygrid-day').forEach(day => day.classList.remove('bg-blue-50', 'dark:bg-slate-700'));
+            
+            // 加上新高亮
+            const targetDay = document.querySelector(`[data-date="${dateStr}"]`);
+            if (targetDay) {
+                targetDay.classList.add(document.documentElement.classList.contains('dark') ? 'dark:bg-slate-700' : 'bg-blue-50');
+            }
+        }
+
+        // 7. 核心功能：連點入曆與跳日
+        function inputDutyAndNext(index) {
+            if (!selectedDateStr) {
+                alert('請先在最上方月曆中點選一個開始日期！');
+                return;
+            }
+            const duty = duties[index];
+            
+            // 覆蓋舊事件
+            scheduleEvents = scheduleEvents.filter(ev => ev.start !== selectedDateStr);
+            
+            const isOff = duty.code.toUpperCase() === 'OFF' || (!duty.startTime && !duty.endTime);
+
+            scheduleEvents.push({
+                title: isOff ? '🏖️ OFF' : `${duty.code} (${duty.startTime})`,
+                start: selectedDateStr,
+                color: duty.color,
+                allDay: true
+            });
+
+            localStorage.setItem('my_schedules', JSON.stringify(scheduleEvents));
+            
+            if (calendar) {
+                calendar.removeAllEvents();
+                calendar.addEventSource(scheduleEvents);
+            }
+
+            // 日期自動 +1 天，達成極速連續排班
+            let current = new Date(selectedDateStr);
+            current.setDate(current.getDate() + 1);
+            let nextDateStr = current.toISOString().split('T')[0];
+            
+            selectDate(nextDateStr);
+        }
+
+        // 8. 新增與儲存自訂班別 (嚴格 24h)
+        function saveDuty() {
+            const code = document.getElementById('new-code').value.trim().toUpperCase();
+            const start = document.getElementById('new-start').value; // HTML5 原生返回 "HH:mm" (24小時制)
+            const end = document.getElementById('new-end').value;
+            const editIndex = document.getElementById('edit-index').value;
+
+            if (!code) {
+                alert('請輸入班別名稱（代碼）！');
+                return;
+            }
+
+            const data = {
+                code,
+                startTime: start,
+                endTime: end,
+                color: editIndex !== "" ? duties[editIndex].color : '#' + Math.floor(Math.random()*16777215).toString(16)
+            };
+
+            if (editIndex !== "") {
+                duties[parseInt(editIndex)] = data;
+            } else {
+                duties.push(data);
+            }
+
+            localStorage.setItem('my_duties', JSON.stringify(duties));
+            renderDutyList();
+            resetForm();
+        }
+
+        // 9. 按鍵排序控制
+        function moveOrder(index, direction) {
+            let target = index + direction;
+            if (target < 0 || target >= duties.length) return;
+            [duties[index], duties[target]] = [duties[target], duties[index]];
+            localStorage.setItem('my_duties', JSON.stringify(duties));
+            renderDutyList();
+        }
+
+        // 10. 修改狀態喚醒
+        function startEdit(index) {
+            const d = duties[index];
+            document.getElementById('new-code').value = d.code;
+            document.getElementById('new-start').value = d.startTime;
+            document.getElementById('new-end').value = d.endTime;
+            document.getElementById('edit-index').value = index;
+            document.getElementById('save-btn').innerText = "更新修改設定";
+            document.getElementById('form-title').innerText = `✏️ 修改班別: ${d.code}`;
+        }
+
+        function resetForm() {
+            document.getElementById('new-code').value = '';
+            document.getElementById('new-start').value = '';
+            document.getElementById('new-end').value = '';
+            document.getElementById('edit-index').value = '';
+            document.getElementById('save-btn').innerText = "儲存班別設定";
+            document.getElementById('form-title').innerText = "➕ 新增 / 修改自訂班別";
+        }
+
+        function deleteDuty(index) {
+            if (confirm(`確定要刪除班別 ${duties[index].code} 嗎？`)) {
+                duties.splice(index, 1);
+                localStorage.setItem('my_duties', JSON.stringify(duties));
+                renderDutyList();
+                resetForm();
+            }
+        }
+
+        function clearAllData() {
+            if (confirm('確定要清空月曆上所有排班紀錄嗎？')) {
+                scheduleEvents = [];
+                localStorage.removeItem('my_schedules');
+                if (calendar) calendar.removeAllEvents();
+                alert('已清空！');
+            }
+        }
+
+        // 11. 匯出日曆
+        function exportToICS() {
+            if (scheduleEvents.length === 0) {
+                alert('目前沒有排班資料可以匯出！');
+                return;
+            }
+            let ics = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Shift//RosterApp//EN\n";
+            scheduleEvents.forEach(ev => {
+                let d = ev.start.replace(/-/g, '');
+                ics += `BEGIN:VEVENT\nSUMMARY:${ev.title}\nDTSTART;VALUE=DATE:${d}\nEND:VEVENT\n`;
+            });
+            ics += "END:VCALENDAR";
+            
+            const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8;' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = "My_Shift_Roster.ics";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    </script>
+</body>
+</html>
